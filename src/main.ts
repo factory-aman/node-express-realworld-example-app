@@ -1,50 +1,74 @@
-import express from 'express';
-import cors from 'cors';
-import * as bodyParser from 'body-parser';
+import * as qs from 'qs';
+import fastify, { FastifyReply, FastifyRequest } from 'fastify';
+import cors from '@fastify/cors';
 import routes from './app/routes/routes';
-import HttpException from './app/models/http-exception.model';
+import { bodyParserHook } from './app/http/body-parser';
+import { etagHook } from './app/http/etag';
+import { errorHandler } from './app/http/error-handler';
+import {
+  collectRoute,
+  decodeParamsHook,
+  notFoundHandler,
+  originalPathname,
+  rewriteUrl,
+} from './app/http/routing';
+import { staticHandler } from './app/http/static';
 
-const app = express();
+const app = fastify({
+  logger: false,
+  exposeHeadRoutes: false,
+  rewriteUrl,
+  routerOptions: {
+    caseSensitive: false,
+    ignoreTrailingSlash: true,
+    // Slugs are derived from article titles and can be long.
+    maxParamLength: 65535,
+    querystringParser: (str: string) => qs.parse(str, { allowPrototypes: true }),
+  },
+});
 
 /**
  * App Configuration
  */
 
-app.use(cors());
-app.use(bodyParser.json());
-app.use(bodyParser.urlencoded({ extended: true }));
-app.use(routes);
+// Request bodies are read by bodyParserHook for every method, as body-parser
+// did, so Fastify's own content-type parsing is switched off.
+for (const method of ['POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS']) {
+  app.addHttpMethod(method, { hasBody: false, overrideExisting: true });
+}
 
-// Serves images
-app.use(express.static(__dirname + '/assets'));
-
-app.get('/', (req: express.Request, res: express.Response) => {
-  res.json({ status: 'API is running on /api' });
+app.addHook('onRoute', (routeOptions) => {
+  // Express answered HEAD with the GET handler, headers included.
+  if (routeOptions.method === 'GET') {
+    routeOptions.method = ['GET', 'HEAD'];
+  }
+  collectRoute(routeOptions);
 });
 
-/* eslint-disable */
-app.use(
-  (
-    err: Error | HttpException,
-    req: express.Request,
-    res: express.Response,
-    next: express.NextFunction,
-  ) => {
-    // @ts-ignore
-    if (err && err.name === 'UnauthorizedError') {
-      return res.status(401).json({
-        status: 'error',
-        message: 'missing authorization credentials',
-      });
-      // @ts-ignore
-    } else if (err && err.errorCode) {
-      // @ts-ignore
-      res.status(err.errorCode).json(err.message);
-    } else if (err) {
-      res.status(500).json(err.message);
-    }
-  },
-);
+app.register(cors, {
+  origin: '*',
+  methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
+  strictPreflight: false,
+});
+app.addHook('preValidation', bodyParserHook);
+app.addHook('preValidation', decodeParamsHook);
+app.addHook('onSend', etagHook);
+
+app.register(routes, { prefix: '/api' });
+
+// Serves images
+app.get('/*', staticHandler(__dirname + '/assets'));
+
+app.get('/', async (req: FastifyRequest, reply: FastifyReply) => {
+  // ignoreTrailingSlash also maps '//' here; Express only matched '/'.
+  if (originalPathname(req) !== '/') {
+    return reply.callNotFound();
+  }
+  return reply.send({ status: 'API is running on /api' });
+});
+
+app.setNotFoundHandler(notFoundHandler);
+app.setErrorHandler(errorHandler);
 
 /**
  * Server activation
@@ -52,6 +76,17 @@ app.use(
 
 const PORT = process.env.PORT || 3000;
 
-app.listen(PORT, () => {
-  console.info(`server up on port ${PORT}`);
-});
+// Listening through Node directly keeps Express's app.listen(PORT) binding:
+// all interfaces, IPv6 when available and IPv4 otherwise. Fastify's listen()
+// always picks a host.
+app.ready().then(
+  () => {
+    app.server.listen(PORT, () => {
+      console.info(`server up on port ${PORT}`);
+    });
+  },
+  (err) => {
+    console.error(err);
+    process.exit(1);
+  },
+);
