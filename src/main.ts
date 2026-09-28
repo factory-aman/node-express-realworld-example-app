@@ -16,6 +16,10 @@ import { staticHandler } from './app/http/static';
 
 const app = fastify({
   logger: false,
+  // Node's http.Server defaults, which the Express app ran with; Fastify's own
+  // defaults disable the request timeout and keep connections alive for 72s.
+  keepAliveTimeout: 5000,
+  requestTimeout: 300000,
   exposeHeadRoutes: false,
   rewriteUrl,
   routerOptions: {
