@@ -1,0 +1,27 @@
+src/app/http/static.ts
+  17a97560dca758fa 1,16-25,52-63,98-100,102
+src/app/http/error-handler.ts
+  17a97560dca758fa 1,4,6-12,14-19,26-36,43,46
+src/main.ts
+  17a97560dca758fa 34-37
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.2",
+  "base_commit_sha": "e8b81bf6a467cf9ef0e35c041da165fcee01e356",
+  "prompts": {
+    "17a97560dca758fa": {
+      "agent_id": {
+        "tool": "droid",
+        "id": "b4ff85b5-fcfc-4574-a31d-7f1c9828b466",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Aman Bangad",
+      "messages": [],
+      "total_additions": 63,
+      "total_deletions": 8,
+      "accepted_lines": 62,
+      "overriden_lines": 0
+    }
+  }
+}
