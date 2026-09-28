@@ -1,6 +1,7 @@
 import * as contentType from 'content-type';
 import { FastifyReply, FastifyRequest } from 'fastify';
 import HttpException from '../models/http-exception.model';
+import { RouteNotMatchedError, sendNotFoundPage } from './routing';
 import { StaticFileError } from './static';
 
 // Express's res.json() only set application/json when no Content-Type was set
@@ -23,6 +24,10 @@ export const errorHandler = (
   request: FastifyRequest,
   reply: FastifyReply,
 ) => {
+  if (err instanceof RouteNotMatchedError) {
+    return sendNotFoundPage(request, reply);
+  }
+
   let presetType: string | undefined;
   if (err instanceof StaticFileError) {
     for (const [name, value] of Object.entries(err.responseHeaders)) {

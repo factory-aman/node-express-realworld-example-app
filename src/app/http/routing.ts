@@ -5,6 +5,17 @@ import parseUrl from 'parseurl';
 import { FastifyReply, FastifyRequest, RouteOptions } from 'fastify';
 import { skipEtag } from './etag';
 
+// Characters that made parseurl fall back to url.parse, which drops a
+// '#fragment' from both the path and the query.
+const PARSEURL_FALLBACK = /[\x09\x0a\x0c\x0d\x20#\u00a0\ufeff]/; // eslint-disable-line no-control-regex
+
+// Express mounted the API with Router().use('/api', …), whose prefix match
+// also consumed a slash right after '/api', so '/api//tags' reached '/tags'.
+const API_MOUNT_EXTRA_SLASH = /^\/api\/(?=\/)/i;
+
+export const expressRoutingPath = (pathname: string): string =>
+  API_MOUNT_EXTRA_SLASH.test(pathname) ? pathname.slice(0, 4) + pathname.slice(5) : pathname;
+
 /*
  * Express matched routes against the raw (still percent-encoded) path and
  * decoded each route parameter once. find-my-way decodes the path before
@@ -12,16 +23,21 @@ import { skipEtag } from './etag';
  * decodeParamsHook then decodes parameters the way Express did.
  */
 export const rewriteUrl = (req: IncomingMessage): string => {
-  const url = req.url || '/';
-  const queryIndex = url.indexOf('?');
-  const pathname = queryIndex === -1 ? url : url.slice(0, queryIndex);
-
-  if (!pathname.includes('%')) {
-    return url;
+  let url = req.url || '/';
+  if (PARSEURL_FALLBACK.test(url)) {
+    const parsed = parseUrl(req);
+    url = (parsed?.pathname || '/') + (parsed?.search || '');
   }
 
-  return pathname.replace(/%/g, '%25') + (queryIndex === -1 ? '' : url.slice(queryIndex));
+  const queryIndex = url.indexOf('?');
+  const query = queryIndex === -1 ? '' : url.slice(queryIndex);
+  const pathname = expressRoutingPath(queryIndex === -1 ? url : url.slice(0, queryIndex));
+
+  return pathname.replace(/%/g, '%25') + query;
 };
+
+/** Raised when find-my-way matched a route that Express's router would not. */
+export class RouteNotMatchedError extends Error {}
 
 export const originalPathname = (request: FastifyRequest): string =>
   parseUrl.original(request.raw)?.pathname || '';
@@ -47,10 +63,15 @@ export const decodeParamsHook = async (request: FastifyRequest): Promise<void> =
     return;
   }
 
-  for (const key of Object.keys(params)) {
-    if (key !== '*') {
-      params[key] = decodeParam(params[key]);
-    }
+  const keys = Object.keys(params).filter((key) => key !== '*');
+  // Express parameters matched one or more characters; find-my-way also
+  // matches an empty segment ('/api/articles//comments').
+  if (keys.some((key) => params[key] === '')) {
+    throw new RouteNotMatchedError();
+  }
+
+  for (const key of keys) {
+    params[key] = decodeParam(params[key]);
   }
 };
 
@@ -97,8 +118,16 @@ const createHtmlDocument = (message: string): string => {
 };
 
 /** The page Express's finalhandler sent when no route handled a request. */
+export const sendNotFoundPage = (request: FastifyRequest, reply: FastifyReply) =>
+  skipEtag(reply)
+    .code(404)
+    .header('Content-Security-Policy', "default-src 'none'")
+    .header('X-Content-Type-Options', 'nosniff')
+    .type('text/html; charset=utf-8')
+    .send(createHtmlDocument(`Cannot ${request.method} ${encodeUrl(originalPathname(request))}`));
+
 export const notFoundHandler = async (request: FastifyRequest, reply: FastifyReply) => {
-  const pathname = originalPathname(request);
+  const pathname = expressRoutingPath(originalPathname(request));
 
   for (const pattern of routePatterns) {
     const match = pattern.exec(pathname);
@@ -107,10 +136,5 @@ export const notFoundHandler = async (request: FastifyRequest, reply: FastifyRep
     }
   }
 
-  return skipEtag(reply)
-    .code(404)
-    .header('Content-Security-Policy', "default-src 'none'")
-    .header('X-Content-Type-Options', 'nosniff')
-    .type('text/html; charset=utf-8')
-    .send(createHtmlDocument(`Cannot ${request.method} ${encodeUrl(pathname)}`));
+  return sendNotFoundPage(request, reply);
 };
