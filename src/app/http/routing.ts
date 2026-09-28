@@ -13,6 +13,18 @@ const API_MOUNT = /^\/api\/?(?=\/|$)/i;
 
 const parse = (url: string) => parseUrl({ url } as IncomingMessage);
 
+// Scheme and host of an absolute-form request target, kept by Express when
+// it trimmed a mount path.
+const getProtohost = (url: string): string => {
+  if (url.length === 0 || url[0] === '/') {
+    return '';
+  }
+  const searchIndex = url.indexOf('?');
+  const pathLength = searchIndex !== -1 ? searchIndex : url.length;
+  const fqdnIndex = url.slice(0, pathLength).indexOf('://');
+  return fqdnIndex !== -1 ? url.substring(0, url.indexOf('/', 3 + fqdnIndex)) : '';
+};
+
 /** The path Express's routers matched for a raw request URL, and its query. */
 export const expressRoute = (rawUrl: string): { pathname: string; search: string } => {
   const outer = parse(rawUrl);
@@ -24,8 +36,9 @@ export const expressRoute = (rawUrl: string): { pathname: string; search: string
     return { pathname, search };
   }
 
-  let rest = rawUrl.slice(mount[0].length);
-  if (rest[0] !== '/') {
+  const protohost = getProtohost(rawUrl);
+  let rest = protohost + rawUrl.slice(protohost.length + mount[0].length);
+  if (!protohost && rest[0] !== '/') {
     rest = '/' + rest;
   }
   return { pathname: '/api' + (parse(rest)?.pathname || '/'), search };
