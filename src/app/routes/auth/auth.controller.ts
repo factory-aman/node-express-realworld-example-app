@@ -1,70 +1,65 @@
-import { NextFunction, Request, Response, Router } from 'express';
+import { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import auth from './auth';
 import { createUser, getCurrentUser, login, updateUser } from './auth.service';
+import { RegisterInput } from './register-input.model';
 
-const router = Router();
+type UserBodyRequest = FastifyRequest<{ Body: { user: RegisterInput } }>;
 
-/**
- * Create an user
- * @auth none
- * @route {POST} /users
- * @bodyparam user User
- * @returns user User
- */
-router.post('/users', async (req: Request, res: Response, next: NextFunction) => {
-  try {
+const authController = async (fastify: FastifyInstance) => {
+  /**
+   * Create an user
+   * @auth none
+   * @route {POST} /users
+   * @bodyparam user User
+   * @returns user User
+   */
+  fastify.post('/users', async (req: UserBodyRequest, reply: FastifyReply) => {
     const user = await createUser({ ...req.body.user, demo: false });
-    res.status(201).json({ user });
-  } catch (error) {
-    next(error);
-  }
-});
+    return reply.status(201).send({ user });
+  });
 
-/**
- * Login
- * @auth none
- * @route {POST} /users/login
- * @bodyparam user User
- * @returns user User
- */
-router.post('/users/login', async (req: Request, res: Response, next: NextFunction) => {
-  try {
+  /**
+   * Login
+   * @auth none
+   * @route {POST} /users/login
+   * @bodyparam user User
+   * @returns user User
+   */
+  fastify.post('/users/login', async (req: UserBodyRequest, reply: FastifyReply) => {
     const user = await login(req.body.user);
-    res.json({ user });
-  } catch (error) {
-    next(error);
-  }
-});
+    return reply.send({ user });
+  });
 
-/**
- * Get current user
- * @auth required
- * @route {GET} /user
- * @returns user User
- */
-router.get('/user', auth.required, async (req: Request, res: Response, next: NextFunction) => {
-  try {
-    const user = await getCurrentUser(req.auth?.user?.id);
-    res.json({ user });
-  } catch (error) {
-    next(error);
-  }
-});
+  /**
+   * Get current user
+   * @auth required
+   * @route {GET} /user
+   * @returns user User
+   */
+  fastify.get(
+    '/user',
+    { preHandler: auth.required },
+    async (req: FastifyRequest, reply: FastifyReply) => {
+      const user = await getCurrentUser(req.auth?.user?.id);
+      return reply.send({ user });
+    },
+  );
 
-/**
- * Update user
- * @auth required
- * @route {PUT} /user
- * @bodyparam user User
- * @returns user User
- */
-router.put('/user', auth.required, async (req: Request, res: Response, next: NextFunction) => {
-  try {
-    const user = await updateUser(req.body.user, req.auth?.user?.id);
-    res.json({ user });
-  } catch (error) {
-    next(error);
-  }
-});
+  /**
+   * Update user
+   * @auth required
+   * @route {PUT} /user
+   * @bodyparam user User
+   * @returns user User
+   */
+  fastify.put(
+    '/user',
+    { preHandler: auth.required },
+    async (req: UserBodyRequest, reply: FastifyReply) => {
+      const user = await updateUser(req.body.user, req.auth?.user?.id);
+      return reply.send({ user });
+    },
+  );
+};
 
-export default router;
+export default authController;

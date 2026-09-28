@@ -1,7 +1,7 @@
-import { expressjwt as jwt } from 'express-jwt';
-import * as express from 'express';
+import * as jwt from 'jsonwebtoken';
+import { FastifyRequest } from 'fastify';
 
-const getTokenFromHeaders = (req: express.Request): string | null => {
+const getTokenFromHeaders = (req: FastifyRequest): string | null => {
   if (
     (req.headers.authorization && req.headers.authorization.split(' ')[0] === 'Token') ||
     (req.headers.authorization && req.headers.authorization.split(' ')[0] === 'Bearer')
@@ -11,18 +11,44 @@ const getTokenFromHeaders = (req: express.Request): string | null => {
   return null;
 };
 
+export class UnauthorizedError extends Error {
+  readonly code: string;
+  constructor(code: string, message: string) {
+    super(message);
+    this.name = 'UnauthorizedError';
+    this.code = code;
+  }
+}
+
+const secret = process.env.JWT_SECRET || 'superSecret';
+
+// Same verification flow as express-jwt 8, which delegated to jsonwebtoken.
+const authenticate =
+  (credentialsRequired: boolean) =>
+  async (req: FastifyRequest): Promise<void> => {
+    const token = getTokenFromHeaders(req);
+
+    if (!token) {
+      if (credentialsRequired) {
+        throw new UnauthorizedError('credentials_required', 'No authorization token was found');
+      }
+      return;
+    }
+
+    let decodedToken: jwt.Jwt | null;
+    try {
+      decodedToken = jwt.decode(token, { complete: true });
+      jwt.verify(token, secret, { algorithms: ['HS256'] });
+    } catch (err) {
+      throw new UnauthorizedError('invalid_token', (err as Error).message);
+    }
+
+    req.auth = decodedToken?.payload as FastifyRequest['auth'];
+  };
+
 const auth = {
-  required: jwt({
-    secret: process.env.JWT_SECRET || 'superSecret',
-    getToken: getTokenFromHeaders,
-    algorithms: ['HS256'],
-  }),
-  optional: jwt({
-    secret: process.env.JWT_SECRET || 'superSecret',
-    credentialsRequired: false,
-    getToken: getTokenFromHeaders,
-    algorithms: ['HS256'],
-  }),
+  required: authenticate(true),
+  optional: authenticate(false),
 };
 
 export default auth;

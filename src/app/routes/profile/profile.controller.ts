@@ -1,67 +1,57 @@
-import { NextFunction, Request, Response, Router } from 'express';
+import { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import auth from '../auth/auth';
 import { followUser, getProfile, unfollowUser } from './profile.service';
 
-const router = Router();
+type ProfileRequest = FastifyRequest<{ Params: { username: string } }>;
 
-/**
- * Get profile
- * @auth optional
- * @route {GET} /profiles/:username
- * @param username string
- * @returns profile
- */
-router.get(
-  '/profiles/:username',
-  auth.optional,
-  async (req: Request, res: Response, next: NextFunction) => {
-    try {
+const profileController = async (fastify: FastifyInstance) => {
+  /**
+   * Get profile
+   * @auth optional
+   * @route {GET} /profiles/:username
+   * @param username string
+   * @returns profile
+   */
+  fastify.get(
+    '/profiles/:username',
+    { preHandler: auth.optional },
+    async (req: ProfileRequest, reply: FastifyReply) => {
       const profile = await getProfile(req.params.username, req.auth?.user?.id);
-      res.json({ profile });
-    } catch (error) {
-      next(error);
-    }
-  },
-);
+      return reply.send({ profile });
+    },
+  );
 
-/**
- * Follow user
- * @auth required
- * @route {POST} /profiles/:username/follow
- * @param username string
- * @returns profile
- */
-router.post(
-  '/profiles/:username/follow',
-  auth.required,
-  async (req: Request, res: Response, next: NextFunction) => {
-    try {
+  /**
+   * Follow user
+   * @auth required
+   * @route {POST} /profiles/:username/follow
+   * @param username string
+   * @returns profile
+   */
+  fastify.post(
+    '/profiles/:username/follow',
+    { preHandler: auth.required },
+    async (req: ProfileRequest, reply: FastifyReply) => {
       const profile = await followUser(req.params?.username, req.auth?.user?.id);
-      res.json({ profile });
-    } catch (error) {
-      next(error);
-    }
-  },
-);
+      return reply.send({ profile });
+    },
+  );
 
-/**
- * Unfollow user
- * @auth required
- * @route {DELETE} /profiles/:username/follow
- * @param username string
- * @returns profiles
- */
-router.delete(
-  '/profiles/:username/follow',
-  auth.required,
-  async (req: Request, res: Response, next: NextFunction) => {
-    try {
+  /**
+   * Unfollow user
+   * @auth required
+   * @route {DELETE} /profiles/:username/follow
+   * @param username string
+   * @returns profiles
+   */
+  fastify.delete(
+    '/profiles/:username/follow',
+    { preHandler: auth.required },
+    async (req: ProfileRequest, reply: FastifyReply) => {
       const profile = await unfollowUser(req.params.username, req.auth?.user?.id);
-      res.json({ profile });
-    } catch (error) {
-      next(error);
-    }
-  },
-);
+      return reply.send({ profile });
+    },
+  );
+};
 
-export default router;
+export default profileController;
