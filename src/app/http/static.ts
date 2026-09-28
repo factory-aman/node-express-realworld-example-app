@@ -1,3 +1,4 @@
+import { IncomingMessage } from 'http';
 import { format } from 'url';
 import { send } from '@fastify/send';
 import encodeUrl from 'encodeurl';
@@ -12,7 +13,17 @@ import { skipEtag } from './etag';
  * redirect, and anything that is not a file falls through to the 404 page.
  */
 
-class StaticError extends Error {}
+/**
+ * An error raised after the file was found. send had already set the file's
+ * headers by then, and Express's error response kept them.
+ */
+export class StaticFileError extends Error {
+  readonly responseHeaders: Record<string, string>;
+  constructor(message: string, responseHeaders: Record<string, string>) {
+    super(message);
+    this.responseHeaders = responseHeaders;
+  }
+}
 
 const collapseLeadingSlashes = (str: string): string => {
   let i = 0;
@@ -37,6 +48,19 @@ const redirectDocument = (loc: string): string =>
   '</a></pre>\n' +
   '</body>\n' +
   '</html>\n';
+
+const fileHeaders = async (root: string, pathname: string): Promise<Record<string, string>> => {
+  const probe = { method: 'HEAD', headers: {} } as IncomingMessage;
+  const { headers, stream } = await send(probe, pathname, { root, maxAge: 0 });
+  stream.resume();
+  const result: Record<string, string> = {};
+  for (const [name, value] of Object.entries(headers)) {
+    if (name.toLowerCase() !== 'content-length') {
+      result[name] = String(value);
+    }
+  }
+  return result;
+};
 
 export const staticHandler =
   (root: string) =>
@@ -71,7 +95,11 @@ export const staticHandler =
         reply.callNotFound();
         return reply;
       }
-      throw new StaticError(result.metadata.error.message);
+      const headers = statusCode >= 500 ? {} : await fileHeaders(root, pathname);
+      if (statusCode === 416 && result.headers['Content-Range']) {
+        headers['Content-Range'] = String(result.headers['Content-Range']);
+      }
+      throw new StaticFileError(result.metadata.error.message, headers);
     }
 
     return skipEtag(reply).code(result.statusCode).headers(result.headers).send(result.stream);

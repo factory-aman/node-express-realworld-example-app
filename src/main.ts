@@ -31,6 +31,10 @@ const app = fastify({
  * App Configuration
  */
 
+// Malformed HTTP requests get Node's plain 400 response, as they did under
+// Express, instead of Fastify's JSON one.
+app.server.removeAllListeners('clientError');
+
 // Request bodies are read by bodyParserHook for every method, as body-parser
 // did, so Fastify's own content-type parsing is switched off.
 for (const method of ['POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS']) {
