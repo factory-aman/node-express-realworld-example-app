@@ -1,0 +1,23 @@
+src/main.ts
+  17a97560dca758fa 19-22
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.2",
+  "base_commit_sha": "8b59af0182004bf5efc430c9bbc9f5ec83566474",
+  "prompts": {
+    "17a97560dca758fa": {
+      "agent_id": {
+        "tool": "droid",
+        "id": "b4ff85b5-fcfc-4574-a31d-7f1c9828b466",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Aman Bangad",
+      "messages": [],
+      "total_additions": 4,
+      "total_deletions": 0,
+      "accepted_lines": 4,
+      "overriden_lines": 0
+    }
+  }
+}
