@@ -5,16 +5,31 @@ import parseUrl from 'parseurl';
 import { FastifyReply, FastifyRequest, RouteOptions } from 'fastify';
 import { skipEtag } from './etag';
 
-// Characters that made parseurl fall back to url.parse, which drops a
-// '#fragment' from both the path and the query.
-const PARSEURL_FALLBACK = /[\x09\x0a\x0c\x0d\x20#\u00a0\ufeff]/; // eslint-disable-line no-control-regex
+// Express mounted the API with Router().use('/api', …). The mount matched
+// the parsed path (so it also consumed a slash right after '/api'), then cut
+// that many characters from the raw URL and the API router parsed the rest
+// again: '/api//tags' reached '/tags', while '/api\tags#x' became '//tags'.
+const API_MOUNT = /^\/api\/?(?=\/|$)/i;
 
-// Express mounted the API with Router().use('/api', …), whose prefix match
-// also consumed a slash right after '/api', so '/api//tags' reached '/tags'.
-const API_MOUNT_EXTRA_SLASH = /^\/api\/(?=\/)/i;
+const parse = (url: string) => parseUrl({ url } as IncomingMessage);
 
-export const expressRoutingPath = (pathname: string): string =>
-  API_MOUNT_EXTRA_SLASH.test(pathname) ? pathname.slice(0, 4) + pathname.slice(5) : pathname;
+/** The path Express's routers matched for a raw request URL, and its query. */
+export const expressRoute = (rawUrl: string): { pathname: string; search: string } => {
+  const outer = parse(rawUrl);
+  const pathname = outer?.pathname || '/';
+  const search = outer?.search || '';
+
+  const mount = API_MOUNT.exec(pathname);
+  if (!mount) {
+    return { pathname, search };
+  }
+
+  let rest = rawUrl.slice(mount[0].length);
+  if (rest[0] !== '/') {
+    rest = '/' + rest;
+  }
+  return { pathname: '/api' + (parse(rest)?.pathname || '/'), search };
+};
 
 /*
  * Express matched routes against the raw (still percent-encoded) path and
@@ -23,17 +38,8 @@ export const expressRoutingPath = (pathname: string): string =>
  * decodeParamsHook then decodes parameters the way Express did.
  */
 export const rewriteUrl = (req: IncomingMessage): string => {
-  let url = req.url || '/';
-  if (PARSEURL_FALLBACK.test(url)) {
-    const parsed = parseUrl(req);
-    url = (parsed?.pathname || '/') + (parsed?.search || '');
-  }
-
-  const queryIndex = url.indexOf('?');
-  const query = queryIndex === -1 ? '' : url.slice(queryIndex);
-  const pathname = expressRoutingPath(queryIndex === -1 ? url : url.slice(0, queryIndex));
-
-  return pathname.replace(/%/g, '%25') + query;
+  const { pathname, search } = expressRoute(req.url || '/');
+  return pathname.replace(/%/g, '%25') + search;
 };
 
 /** Raised when find-my-way matched a route that Express's router would not. */
@@ -127,7 +133,7 @@ export const sendNotFoundPage = (request: FastifyRequest, reply: FastifyReply) =
     .send(createHtmlDocument(`Cannot ${request.method} ${encodeUrl(originalPathname(request))}`));
 
 export const notFoundHandler = async (request: FastifyRequest, reply: FastifyReply) => {
-  const pathname = expressRoutingPath(originalPathname(request));
+  const { pathname } = expressRoute(request.originalUrl || '/');
 
   for (const pattern of routePatterns) {
     const match = pattern.exec(pathname);
